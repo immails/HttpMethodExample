@@ -12,19 +12,20 @@ import com.google.gson.reflect.TypeToken;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import pro.gravit.launcher.ClientPermissions;
-import pro.gravit.launcher.events.request.GetAvailabilityAuthRequestEvent;
-import pro.gravit.launcher.profiles.Texture;
-import pro.gravit.launcher.request.auth.AuthRequest;
-import pro.gravit.launcher.request.auth.details.AuthPasswordDetails;
-import pro.gravit.launcher.request.auth.details.AuthTotpDetails;
-import pro.gravit.launcher.request.auth.password.Auth2FAPassword;
-import pro.gravit.launcher.request.auth.password.AuthPlainPassword;
-import pro.gravit.launcher.request.auth.password.AuthTOTPPassword;
-import pro.gravit.launcher.request.secure.HardwareReportRequest;
+import pro.gravit.launcher.base.ClientPermissions;
+import pro.gravit.launcher.base.events.request.GetAvailabilityAuthRequestEvent;
+import pro.gravit.launcher.base.profiles.Texture;
+import pro.gravit.launcher.base.request.auth.AuthRequest;
+import pro.gravit.launcher.base.request.auth.details.AuthPasswordDetails;
+import pro.gravit.launcher.base.request.auth.details.AuthTotpDetails;
+import pro.gravit.launcher.base.request.auth.password.Auth2FAPassword;
+import pro.gravit.launcher.base.request.auth.password.AuthPlainPassword;
+import pro.gravit.launcher.base.request.auth.password.AuthTOTPPassword;
+import pro.gravit.launcher.base.request.secure.HardwareReportRequest.HardwareInfo;
 import pro.gravit.launchserver.HttpRequester;
 import pro.gravit.launchserver.LaunchServer;
 import pro.gravit.launchserver.auth.AuthException;
+import pro.gravit.launchserver.auth.AuthProviderPair;
 import pro.gravit.launchserver.auth.core.AuthCoreProvider;
 import pro.gravit.launchserver.auth.core.User;
 import pro.gravit.launchserver.auth.core.UserSession;
@@ -178,7 +179,7 @@ public class MyHttpAuthCoreProvider extends AuthCoreProvider implements AuthSupp
     }
 
     @Override
-    public void init(LaunchServer server) {
+    public void init(LaunchServer server, AuthProviderPair pair) {
         requester = new HttpRequester();
     }
 
@@ -250,31 +251,6 @@ public class MyHttpAuthCoreProvider extends AuthCoreProvider implements AuthSupp
     }
 
     @Override
-    public MyHttpUserHardware getHardwareInfoByData(HardwareReportRequest.HardwareInfo info) {
-        HttpHelper.HttpOptional<MyHttpUserHardware, HttpRequester.SimpleError> response = null;
-        try {
-            response = requester.send(requester.post(getHardwareInfoByDataUrl, new HardwareInfoRequest(info), bearerToken), MyHttpUserHardware.class);
-        } catch (Throwable e) {
-            logger.error("getHardwareInfoByData", e);
-        }
-
-        if (response != null && response.statusCode() == 200) {
-            MyHttpUserHardware userHardware = response.result();
-            logger.debug("Successfully got UserHardware {} by info", userHardware.id);
-            return userHardware;
-        }
-
-        // HTTP 204 meaning NO CONTENT, that usually means no data found, but request processed successfully
-        if (response != null && response.statusCode() == 204) {
-            logger.debug("UserHardware not found by publicKey");
-            return null;
-        }
-
-        logger.debug("Something went wrong while getting UserHardware by info");
-        return null;
-    }
-
-    @Override
     public MyHttpUserHardware getHardwareInfoById(String id) {
         HttpHelper.HttpOptional<MyHttpUserHardware, HttpRequester.SimpleError> response = null;
         try {
@@ -297,27 +273,6 @@ public class MyHttpAuthCoreProvider extends AuthCoreProvider implements AuthSupp
 
         logger.debug("Something went wrong while getting UserHardware by id {}", id);
         return null;
-    }
-
-    @Override
-    public MyHttpUserHardware createHardwareInfo(HardwareReportRequest.HardwareInfo info, byte[] publicKey) {
-        HttpHelper.HttpOptional<MyHttpUserHardware, HttpRequester.SimpleError> response = null;
-        try {
-            response = requester.send(requester.post(createHardwareInfoUrl, new HardwareInfoRequest(info, publicKey), bearerToken), MyHttpUserHardware.class);
-        } catch (Throwable e) {
-            logger.error("createHardwareInfo", e);
-        }
-
-        if (response != null && response.isSuccessful()) {
-            MyHttpUserHardware userHardware = response.result();
-            logger.debug("Successfully created UserHardware");
-            return userHardware;
-        }
-
-        logger.debug("Something went wrong while creating UserHardware");
-
-        // shouldn't actually happen
-        throw new SecurityException("Please contact administrator");
     }
 
     @Override
@@ -420,8 +375,8 @@ public class MyHttpAuthCoreProvider extends AuthCoreProvider implements AuthSupp
 
     public record GetUserByAccessTokenRequest(String accessToken) {}
 
-    public record HardwareInfoRequest(HardwareReportRequest.HardwareInfo info, byte[] publicKey, String id) {
-        HardwareInfoRequest(HardwareReportRequest.HardwareInfo info) {
+    public record HardwareInfoRequest(HardwareInfo info, byte[] publicKey, String id) {
+        HardwareInfoRequest(HardwareInfo info) {
             this(info, null, null);
         }
 
@@ -433,7 +388,7 @@ public class MyHttpAuthCoreProvider extends AuthCoreProvider implements AuthSupp
             this(null, null, id);
         }
 
-        HardwareInfoRequest(HardwareReportRequest.HardwareInfo info, byte[] publicKey) {
+        HardwareInfoRequest(HardwareInfo info, byte[] publicKey) {
             this(info, publicKey, null);
         }
     }
@@ -537,10 +492,10 @@ public class MyHttpAuthCoreProvider extends AuthCoreProvider implements AuthSupp
         }
     }
 
-    public record MyHttpUserHardware(HardwareReportRequest.HardwareInfo hardwareInfo, byte[] publicKey, String id, boolean banned) implements UserHardware {
+    public record MyHttpUserHardware(HardwareInfo hardwareInfo, byte[] publicKey, String id, boolean banned) implements UserHardware {
 
         @Override
-        public HardwareReportRequest.HardwareInfo getHardwareInfo() {
+        public HardwareInfo getHardwareInfo() {
             return hardwareInfo;
         }
 
@@ -561,5 +516,51 @@ public class MyHttpAuthCoreProvider extends AuthCoreProvider implements AuthSupp
     }
 
     public record MyHttpSimpleResponse(String message) {
+    }
+
+    @Override
+    public UserHardware getHardwareInfoByData(HardwareInfo info) {
+        HttpHelper.HttpOptional<MyHttpUserHardware, HttpRequester.SimpleError> response = null;
+        try {
+            response = requester.send(requester.post(getHardwareInfoByDataUrl, new HardwareInfoRequest(info), bearerToken), MyHttpUserHardware.class);
+        } catch (Throwable e) {
+            logger.error("getHardwareInfoByData", e);
+        }
+
+        if (response != null && response.statusCode() == 200) {
+            MyHttpUserHardware userHardware = response.result();
+            logger.debug("Successfully got UserHardware {} by info", userHardware.id);
+            return userHardware;
+        }
+
+        // HTTP 204 meaning NO CONTENT, that usually means no data found, but request processed successfully
+        if (response != null && response.statusCode() == 204) {
+            logger.debug("UserHardware not found by publicKey");
+            return null;
+        }
+
+        logger.debug("Something went wrong while getting UserHardware by info");
+        return null;
+    }
+
+    @Override
+    public UserHardware createHardwareInfo(HardwareInfo info, byte[] publicKey) {
+        HttpHelper.HttpOptional<MyHttpUserHardware, HttpRequester.SimpleError> response = null;
+        try {
+            response = requester.send(requester.post(createHardwareInfoUrl, new HardwareInfoRequest(info, publicKey), bearerToken), MyHttpUserHardware.class);
+        } catch (Throwable e) {
+            logger.error("createHardwareInfo", e);
+        }
+
+        if (response != null && response.isSuccessful()) {
+            MyHttpUserHardware userHardware = response.result();
+            logger.debug("Successfully created UserHardware");
+            return userHardware;
+        }
+
+        logger.debug("Something went wrong while creating UserHardware");
+
+        // shouldn't actually happen
+        throw new SecurityException("Please contact administrator");
     }
 }

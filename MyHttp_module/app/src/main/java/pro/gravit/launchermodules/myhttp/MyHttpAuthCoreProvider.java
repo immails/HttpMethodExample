@@ -180,6 +180,7 @@ public class MyHttpAuthCoreProvider extends AuthCoreProvider implements AuthSupp
 
     @Override
     public void init(LaunchServer server, AuthProviderPair pair) {
+        super.init(server, pair);
         requester = new HttpRequester();
     }
 
